@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta name="theme-color" content="#20232b">
+  <link rel="icon" href="data:,">
+  <title>Coin 10s</title>
+  <style>
+    html,body {margin:0;background:#20232b;color:#fff}
+    #boot {position:fixed;inset:0;display:grid;place-items:center;background:#11151e}
+    [hidden] {display:none!important}
+  </style>
+</head>
+<!-- Set data-editor to visible, hidden (E shortcut), or off. -->
+<body data-editor="visible" data-editor-side="right">
+  <div id="game-area" inert>
+    <div id="stage" tabindex="0" aria-label="Coin 10s game. Press Space or Enter to spin."></div>
+    <p class="screen-reader" id="balance-summary" aria-live="polite"></p>
+  </div>
+  <div id="popup-layer" hidden>
+    <div id="popup-overlay">
+      <section id="dialog-content" role="dialog" aria-modal="true" aria-labelledby="dialog-heading">
+        <h2 id="dialog-heading"></h2>
+        <button class="close-dialog" type="button" aria-label="Close menu">×</button>
+        <div class="dialog-body"></div>
+      </section>
+    </div>
+  </div>
+  <div id="boot">
+    <div id="boot-scene">
+      <h1 id="boot-title"></h1>
+      <div id="boot-coins" aria-hidden="true"></div>
+      <p id="boot-status" role="status">Loading…</p>
+      <button id="start" hidden>Click anywhere to play</button>
+    </div>
+  </div>
+  <button id="editor-toggle" aria-label="Toggle slot editor" title="Slot editor (E)" hidden>EDITOR</button>
+  <aside id="editor" aria-label="Visual slot editor" hidden></aside>
+  <div id="toast" role="status"></div>
+  <script>
+    // Stamp each module and resource per load, including static module imports
+    // on hosts where this package cannot set response headers.
+    (async () => {
+      const files = ['animation','anticipation-chase','assets','audio','controls','debt','editor-access',
+        'editor-grid','editor','effects','main','math','mobile','outcomes','rendering','settings',
+        'simulation','startup','storage','ui','win-text'];
+      const bust = '?v=' + Date.now();
+      const imports = Object.fromEntries(files.map(name => {
+        const uri = new URL('js/' + name + '.js', document.baseURI).href;
+        return [uri, uri + bust];
+      }));
+      const map = document.createElement('script');
+      map.type = 'importmap';
+      map.textContent = JSON.stringify({ imports });
+      document.head.append(map);
+      const style = document.createElement('link');
+      style.rel = 'stylesheet';
+      style.href = 'style.css' + bust;
+      document.head.append(style);
+      await new Promise((resolve, reject) => {
+        const pixi = document.createElement('script');
+        pixi.src = 'vendor/pixi.min.js' + bust;
+        pixi.onload = resolve;
+        pixi.onerror = () => reject(Error('PixiJS could not load.'));
+        document.head.append(pixi);
+      });
+      // Resolve the bare base URL through the import map once.
+      await import(new URL('js/main.js', document.baseURI).href);
+    })().catch(error => {
+      document.querySelector('#boot-status').textContent = 'Could not load. Open the game through its local launcher. ' + error.message;
+      console.error(error);
+    });
+  </script>
+</body>
+</html>
