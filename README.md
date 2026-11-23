@@ -1,3 +1,5 @@
+https://matt3756-tech.github.io/1000-slot/
+
 # Coin 10s
 
 ## Play locally
