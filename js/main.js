@@ -1,16 +1,17 @@
 import { mediaSource } from './assets.js';
 import { spinReels, animate } from './animation.js';
-import { AudioSystem } from './audio.js';
+import { AudioSystem, WIN_CUES } from './audio.js';
 import { Controls } from './controls.js';
 import { refreshDebt } from './debt.js';
 import { Editor } from './editor.js';
-import { BLANK, COINS, borrow, lineWin, repay } from './math.js';
-import { baseOutcome, cell, centerIds } from './outcomes.js';
+import { BLANK, COINS, borrow, lineWin, repay, winCombination } from './math.js';
+import { baseOutcome, cell, centerIds, reelColumn } from './outcomes.js';
 import { Renderer } from './rendering.js';
 import { BETS, FONT, SIZE, loadSettings, mergeSettings } from './settings.js';
 import { Startup } from './startup.js';
 import { cashOut, loadPlayer, savePlayer } from './storage.js';
 import { UI, money, toast } from './ui.js';
+import { FEATURED_WINS, shakeCabinet } from './win-celebration.js';
 
 const { settings, fileDefaults } = await loadSettings();
 const player = loadPlayer(settings.cashoutRules);
@@ -19,9 +20,27 @@ const audio = new AudioSystem(() => settings);
 const stage = document.querySelector('#stage');
 let render, controls, ui, editor, board, peeks = [], busy = false, ready = false;
 let displayPlayer = player, previewToken = 0;
+let previewSound;
 const audioMedia = Object.fromEntries(Object.entries({
-  click: 'spin-start', stop: 'reel-stop', win: 'line-win', anticipate: 'anticipation', music: 'base-music'
-}).map(([key, file]) => ['audio:' + key, 'assets/audio/' + file + '.mp3']));
+  click: 'ui-click.wav',
+  spinStart: 'spin-start.mp3',
+  reelLoop: 'reel-running.wav',
+  stop: 'reel-stop.mp3',
+  win: 'line-win.mp3',
+  mixedLineWin: 'line-win-mixed.wav',
+  anticipate: 'anticipation.mp3',
+  music: 'base-music.mp3',
+  winMixed: 'win-pop-mixed.wav',
+  win10: 'win-pop-10.wav',
+  win100: 'win-pop-100.wav',
+  win1000: 'win-pop-1000.wav',
+  land10: 'coin-land-10.wav',
+  land100: 'coin-land-100.wav',
+  land1000: 'coin-land-1000.wav',
+  bonusWon: 'bonus-won-bell.mp3',
+  bigWinMusic: 'big-win-music.mp3',
+  jackpotMusic: 'jackpot-music.mp3'
+}).map(([key, file]) => ['audio:' + key, 'assets/audio/' + file]));
 
 const testCases = {
   blank: [BLANK, BLANK, BLANK],
@@ -66,6 +85,7 @@ function apply() {
 
 function clearEffectPreview() {
   previewToken++;
+  previewSound?.cancel();
   render.effects.clear();
   render.setAnticipation([]);
   audio.stopAnticipation();
@@ -82,7 +102,8 @@ async function spin({ preview = false, kind } = {}) {
     next = baseOutcome(nextSettings, preview ? testCases[kind] : undefined);
   } catch (error) { toast(error.message); return; }
   const bet = player.bet;
-  const amount = lineWin(centerIds(next), bet);
+  const ids = centerIds(next);
+  const amount = lineWin(ids, bet, nextSettings.payouts);
   const old = board;
   const oldPeeks = peeks;
   clearEffectPreview();
@@ -100,25 +121,36 @@ async function spin({ preview = false, kind } = {}) {
   busy = true;
   update();
   try {
+    audio.play('spinStart');
     const adjacent = await spinReels(render, old, next, nextSettings, audio, oldPeeks);
     if (!preview) {
       board = next;
       peeks = adjacent;
     }
     if (amount) {
-      const effect = nextSettings.winning;
-      for (let i = 0; i < 3; i++) render.effects.start(i, next[i][1], 'winning');
-      if (effect.enabled) await animate(effect.duration, () => {}, render.app.ticker);
-      if (!preview) { displayPlayer = player; update(); }
-      if (settings.popups.line.enabled) await audio.present('win', () => {});
-      else audio.play('win');
-      await ui.showLine(amount);
+      const combination = winCombination(ids);
+      if (FEATURED_WINS[combination]) {
+        audio.setMode('winHold');
+        const bell = audio.play('bonusWon');
+        startWinPop(next, ids, false);
+        await Promise.all([bell.done, shakeCabinet(render, nextSettings.winShake, bell)]);
+        await ui.showFeaturedWin(combination, amount);
+      } else {
+        startWinPop(next, ids);
+        if (nextSettings.winning.enabled) await animate(nextSettings.winning.duration, () => {}, render.app.ticker);
+        if (!preview) { displayPlayer = player; update(); }
+        if (settings.popups.line.enabled) {
+          await audio.present(combination === 'mixed' ? 'mixedLineWin' : 'win', () => {});
+        }
+        await ui.showLine(amount);
+      }
     }
   } catch (error) {
     if (!preview) board = next;
     peeks = [];
     toast('Reel animation interrupted. ' + error.message);
   } finally {
+    if (audio.mode !== 'base') audio.setMode('base');
     if (preview) render.effects.clear();
     render.endSpin(board, peeks);
     displayPlayer = player;
@@ -128,7 +160,20 @@ async function spin({ preview = false, kind } = {}) {
   }
 }
 
-function effectPreview(kind, path) {
+function startWinPop(board, ids, playCue = true) {
+  const cue = WIN_CUES[winCombination(ids)];
+  if (!cue) return;
+  for (let reel = 0; reel < board.length; reel++) render.effects.start(reel, board[reel][1], 'winning');
+  if (playCue) audio.play(cue);
+}
+
+function audioPreview(cue) {
+  if (busy) return;
+  previewSound?.cancel();
+  previewSound = audio.play(cue, cue === 'reelLoop' ? { loopForMs: 1250 } : undefined);
+}
+
+function effectPreview(kind, path, testKind) {
   if (busy) return;
   clearEffectPreview();
   ui.clearLine();
@@ -137,23 +182,27 @@ function effectPreview(kind, path) {
     const id = /^(masks|buttons)\./.test(path) ? path.split('.')[1] : 'spin';
     if (!/^(masks|buttons)\./.test(path)) editor.select('masks.spin');
     controls.press(id);
-    audio.play('click');
+    audio.play(id === 'spin' ? 'spinStart' : 'click');
     return;
   }
   if (kind === 'anticipation') {
     editor.select('anticipationChase');
-    render.setAnticipation([1, 2]);
+    render.setAnticipation([1]);
     audio.play('anticipate');
     setTimeout(() => { if (previewToken === token) clearEffectPreview(); }, Math.max(2400, settings.anticipationChase.duration * 2));
     return;
   }
   const selected = path.startsWith('symbols.') ? path.split('.')[1] : 'coin100';
   const id = COINS.includes(selected) ? selected : 'coin100';
-  const previewBoard = baseOutcome(settings, ['coin10', id, 'coin1000']);
+  const testIds = testCases[testKind];
+  const winIds = testIds && winCombination(testIds) ? testIds : [id, id, id];
+  const previewIds = kind === 'winning' ? winIds : ['coin10', id, 'coin1000'];
+  const previewBoard = previewIds.map(coinId => reelColumn(coinId));
   render.endSpin(previewBoard, []);
   if (kind === 'landing' || kind === 'winning') {
     editor.select(kind);
-    render.effects.start(1, previewBoard[1][1], kind);
+    if (kind === 'winning') startWinPop(previewBoard, winIds);
+    else render.startLanding(1, previewBoard[1][1]);
   }
 }
 
@@ -161,7 +210,7 @@ async function action(id, arg) {
   if (!ready || busy || render.editMode) return;
   if (['spin', 'menu', 'betPlus', 'betMinus'].includes(id) && ui.modal) return;
   if (controls.buttons[id]) {
-    audio.play('click');
+    if (id !== 'spin') audio.play('click');
     controls.press(id);
   }
   if (id === 'spin') { await spin(); return; }
@@ -196,8 +245,7 @@ function restoreBoard(saved) {
 }
 
 async function boot() {
-  startup.apply();
-  const fonts = [[FONT, 'assets/fonts/Matcha-Squishy.otf'], ['Coin Pixel', 'assets/fonts/Coin-Pixel.ttf']];
+  const fonts = [[FONT, 'assets/fonts/Matcha-Squishy.otf']];
   const preloadFont = async ([name, path]) => {
     const face = new FontFace(name, `url("${mediaSource(path)}")`);
     document.fonts.add(await face.load());
@@ -209,6 +257,7 @@ async function boot() {
     document.documentElement.style.setProperty(variable, `url("${image.src}")`);
   };
   await Promise.all([
+    startup.load(),
     ...fonts.map(preloadFont),
     preloadImage('assets/gray-gradient.jpg', '--gray-background'),
     preloadImage('assets/menu-grain.png', '--menu-grain')
@@ -217,19 +266,11 @@ async function boot() {
   await Promise.all([render.load(), audio.loadMedia(audioMedia)]);
   controls = new Controls(render, settings, action);
   ui = new UI(render, settings, player, audio, action, startup);
-  const coins = document.querySelector('#boot-coins');
-  for (const id of COINS) {
-    const node = new Image();
-    node.src = render.urls[id];
-    node.alt = '';
-    coins.append(node);
-  }
-  await Promise.all([...coins.children].map(node => node.decode()));
   board = restoreBoard(player.board);
   render.endSpin(board, peeks);
   editor = new Editor(settings, render, ui, {
     apply, resize, getBusy: () => busy || !ready, spinPreview: kind => spin({ preview: true, kind }),
-    effectPreview, clearEffectPreview, fileDefaults
+    effectPreview, audioPreview, clearEffectPreview, fileDefaults
   });
   render.select = path => editor.select(path);
   render.onDragStart = () => editor.snapshot();
@@ -238,11 +279,11 @@ async function boot() {
   resize();
   apply();
   update();
-  startup.ready(() => {
-    ready = true;
+  startup.ready(async () => {
     audio.started = true;
     audio.unlock();
-    startup.close();
+    await startup.close();
+    ready = true;
     if (editor.enabled && document.body.dataset.editor === 'visible') document.querySelector('#editor-toggle').hidden = false;
     document.querySelector('#game-area').inert = false;
     stage.focus({ preventScroll: true });
@@ -250,7 +291,7 @@ async function boot() {
 }
 
 document.addEventListener('keydown', event => {
-  if (!ready || event.repeat || /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(event.target.tagName) && event.key !== 'Escape') return;
+  if (!ready || busy || event.repeat || /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(event.target.tagName) && event.key !== 'Escape') return;
   if (event.key.toLowerCase() === 'e' && !event.ctrlKey && !event.metaKey) editor.toggle();
   else if (event.key === 'Escape') {
     if (ui.modal) ui.hideModal();

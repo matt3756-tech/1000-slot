@@ -1,7 +1,9 @@
 import { editorAccess } from './editor-access.js';
-import { clone, getPath, limits, mergeSettings, popupKinds, saveSettings, updateLayoutField, clamp } from './settings.js';
-import { COINS } from './math.js';
+import { clone, getPath, limits, mergeSettings, normalizePayout, popupKinds, saveSettings, updateLayoutField, clamp } from './settings.js';
+import { COINS, WIN_LABELS } from './math.js';
 import { toast } from './ui.js';
+import { SFX_LABELS } from './audio.js';
+import { DEFAULT_SPINS, MAX_SPINS, MIN_SPINS, returnOdds, simulate, simulationCount } from './simulation.js';
 
 const nice = key => key.replace(/([A-Z])/g, ' $1').replace(/^./, char => char.toUpperCase());
 const labelFor = key => ({
@@ -15,7 +17,9 @@ const tooltip = {
   startDuration: 'Set to zero for an immediate start.',
   stopDuration: 'Set to zero for an immediate regular stop. Anticipation has its own deceleration.',
   spacing: 'Center-to-center distance between stops. Small values are limited by the reel window height.',
-  weight: 'Relative share of coin stops. Each coin stop is followed by a blank.',
+  weight: 'Relative share of coin stops after the blank chance is applied.',
+  blankPercent: 'Chance that any one reel lands a blank on the payline.',
+  syncToBell: 'Shake until the bonus bell finishes. Turn off to use the duration below.',
   snapEnabled: 'Align dragged objects to the canvas grid.',
   shadowAngle: 'Direction of the amount shadow in degrees.'
 };
@@ -42,11 +46,13 @@ export class Editor {
 
   groups() {
     return [
-      ['slot', 'Cabinet'], ['background', 'Background'], ['reels', 'Reel windows + spacing'],
+      ['slot', 'Cabinet'], ['background', 'Background'], ['reels', 'Reels, spacing + blank chance'],
       ['spin', 'Reel start, speed + stop'], ['anticipation', 'Anticipation timing'],
       ['anticipationChase', 'Anticipation reel glow'], ['landing', 'Coin landing glow + sparkles'],
       ['winning', 'Winning coin pop + glow'],
+      ['winShake', 'Big Win / Jackpot shake'],
       ...COINS.map(id => ['symbols.' + id, id.slice(4) + ' coin']),
+      ['payouts', 'Winning combination pays'],
       ...Object.keys(this.s.buttons).flatMap(id => [
         ['buttons.' + id, labelFor(id) + ' button'], ['masks.' + id, labelFor(id) + ' press mask']
       ]),
@@ -87,9 +93,10 @@ export class Editor {
         <button id="anticipation-preview">Reel glow</button><button id="symbol-preview">Show symbol</button><button id="press-preview">Button press</button></div>
       <h2>RTP calculator</h2>
       <div class="hint" id="weights-overview"></div>
+      <div class="toolbar"><button id="blank-settings">Edit blank chance</button><button id="payout-settings">Edit pays</button></div>
       <label for="sim-count">Simulation spins</label>
-      <div class="sim-inputs"><input type="range" id="sim-slider" aria-label="Simulation spin count" min="1000" max="1000000" step="1000" value="100000">
-        <input type="number" id="sim-count" min="1000" max="1000000" step="1000" value="100000"></div>
+      <div class="sim-inputs"><input type="range" id="sim-slider" aria-label="Simulation spin count" min="${MIN_SPINS}" max="${MAX_SPINS}" step="1000" value="${DEFAULT_SPINS}">
+        <input type="number" id="sim-count" min="${MIN_SPINS}" max="${MAX_SPINS}" step="1" value="${DEFAULT_SPINS}"></div>
       <div class="toolbar"><button id="run-rtp">Calculate RTP</button><button id="cancel-rtp" disabled>Cancel</button></div>
       <div id="rtp-result" class="result" role="status"></div>`;
     const el = this.el;
@@ -136,17 +143,25 @@ export class Editor {
       ['symbol-preview', 'symbol'], ['press-preview', 'press']]) {
       click(id, () => {
         this.preview(null);
-        this.cb.effectPreview(kind, this.path);
+        this.cb.effectPreview(kind, this.path, $(el, 'spin-case').value);
       });
     }
     $(el, 'sim-slider').addEventListener('input', event => { $(el, 'sim-count').value = event.target.value; });
     $(el, 'sim-count').addEventListener('change', event => {
-      const value = clamp(Math.round(Number(event.target.value) || 1000), 1000, 1000000);
+      const value = simulationCount(event.target.value, MIN_SPINS);
       $(el, 'sim-slider').value = value;
       event.target.value = value;
     });
+    click('blank-settings', () => {
+      this.select('reels');
+      $(el, 'field-reels-blankPercent').focus();
+    });
+    click('payout-settings', () => {
+      this.select('payouts');
+      $(el, 'field-payouts-coin10').focus();
+    });
     click('run-rtp', () => this.runRtp());
-    click('cancel-rtp', () => { this.stopWorker(); $(el, 'rtp-result').textContent = 'Simulation cancelled.'; });
+    click('cancel-rtp', () => this.cancelRtp());
     let side;
     try { side = localStorage.getItem('coin10s.editor.side'); } catch {}
     this.side(side === 'left' ? 'left' : 'right');
@@ -164,6 +179,7 @@ export class Editor {
     if (!this.enabled || this.cb.getBusy()) return;
     this.preview(null);
     this.cb.clearEffectPreview();
+    if (!open) this.cancelRtp();
     this.open = open;
     this.render.editMode = open;
     this.el.hidden = !open;
@@ -189,11 +205,35 @@ export class Editor {
     const box = $(this.el, 'controls');
     $(this.el, 'grid-snap').checked = this.s.editorGrid.snapEnabled;
     box.replaceChildren();
+    if (this.path === 'audio') {
+      const toolbar = document.createElement('div');
+      toolbar.className = 'toolbar';
+      const select = document.createElement('select');
+      select.setAttribute('aria-label', 'Sound cue');
+      for (const [cue, label] of Object.entries(SFX_LABELS)) select.add(new Option(label, cue));
+      const button = document.createElement('button');
+      button.textContent = 'Preview sound';
+      button.addEventListener('click', () => this.cb.audioPreview(select.value));
+      toolbar.append(select, button);
+      box.append(toolbar);
+    }
+    if (this.path === 'payouts') {
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.textContent = 'Pays are multiples of the current bet. Set a pay to 0 to disable it.';
+      box.append(hint);
+    }
     for (const [key, value] of Object.entries(config)) {
       const row = document.createElement('div'), label = document.createElement('label');
       const path = this.path + '.' + key;
       row.className = 'control';
-      label.textContent = nice(key);
+      const cueField = this.path === 'audio' && /^(.*?)(Volume|TimingMs|OffsetMs)$/.exec(key);
+      const name = this.path === 'payouts' ? WIN_LABELS[key] + ' (× bet)'
+        : cueField && SFX_LABELS[cueField[1]]
+        ? SFX_LABELS[cueField[1]] + ' · ' + nice(cueField[2]).toLowerCase()
+        : key === 'blankPercent' ? 'Blank chance (%)'
+        : key === 'h' && /^popups\.(?!line$)/.test(this.path) ? 'Max height' : nice(key);
+      label.textContent = name;
       label.title = tooltip[key] ?? '';
       row.append(label);
       const onChange = next => {
@@ -206,10 +246,20 @@ export class Editor {
       input.id = 'field-' + path.replaceAll('.', '-');
       label.htmlFor = input.id;
       input.dataset.path = path;
-      if (typeof value === 'number') {
+      if (this.path === 'payouts') {
+        input.type = 'number';
+        Object.assign(input, limits(path, value), { value });
+        label.append(input);
+        input.addEventListener('change', () => {
+          const next = Number.isFinite(input.valueAsNumber) ? normalizePayout(input.valueAsNumber) : getPath(this.s, path);
+          this.snapshot();
+          onChange(next);
+          input.value = next;
+        });
+      } else if (typeof value === 'number') {
         const range = limits(path, value), number = document.createElement('input');
         number.type = 'number';
-        number.setAttribute('aria-label', nice(key) + ' value');
+        number.setAttribute('aria-label', name + ' value');
         number.dataset.path = path;
         input.type = 'range';
         for (const slider of [number, input]) {
@@ -259,7 +309,7 @@ export class Editor {
   weights() {
     const total = COINS.reduce((sum, id) => sum + this.s.symbols[id].weight, 0);
     $(this.el, 'weights-overview').textContent = total
-      ? 'Coin stops · ' + COINS.map(id => `${id.slice(4)}: ${(100 * this.s.symbols[id].weight / total).toFixed(1)}%`).join(' · ')
+      ? `Blank per reel ${this.s.reels.blankPercent}% · Coin mix ` + COINS.map(id => `${id.slice(4)}: ${(100 * this.s.symbols[id].weight / total).toFixed(1)}%`).join(' · ')
       : 'Set at least one coin weight above zero.';
   }
 
@@ -318,32 +368,56 @@ export class Editor {
     });
   }
 
-  stopWorker() {
-    this.worker?.terminate();
-    this.worker = null;
-    $(this.el, 'run-rtp').disabled = false;
-    $(this.el, 'cancel-rtp').disabled = true;
+  setRtpRunning(running) {
+    $(this.el, 'run-rtp').disabled = running;
+    $(this.el, 'cancel-rtp').disabled = !running;
   }
 
-  runRtp() {
+  cancelRtp() {
+    if (!this.simulation) return;
+    this.simulation.abort();
+    this.simulation = null;
+    this.setRtpRunning(false);
+    $(this.el, 'rtp-result').textContent = 'Simulation cancelled.';
+  }
+
+  async runRtp() {
     const result = $(this.el, 'rtp-result');
+    const pct = value => (value * 100).toFixed(2) + '%';
+    const run = new AbortController();
+    this.simulation?.abort();
+    this.simulation = run;
     try {
-      const settings = mergeSettings(this.s);
-      this.stopWorker();
-      this.worker = new Worker(new URL('./rtp-worker.js?v=' + Date.now(), import.meta.url), { type: 'module' });
-      result.textContent = 'Running simulation…';
-      $(this.el, 'run-rtp').disabled = true;
-      $(this.el, 'cancel-rtp').disabled = false;
-      this.worker.onmessage = ({ data }) => {
-        const pct = value => (value * 100).toFixed(2) + '%';
-        result.textContent = data.error || `${data.spins.toLocaleString('en-US')} spins\nSimulated RTP ${pct(data.rtp)}\nExpected RTP ${pct(data.expected)}\nWin frequency ${pct(data.hitRate)}`;
-        this.stopWorker();
+      const odds = returnOdds(mergeSettings(this.s));
+      const count = $(this.el, 'sim-count').valueAsNumber;
+      const spins = simulationCount(count);
+      const expected = `Expected RTP ${pct(odds.expected)}
+Expected win frequency ${pct(odds.hitRate)}`;
+      const combinationPct = value => {
+        const percent = value * 100;
+        return (percent > 0 && percent < .0001 ? percent.toPrecision(2) : percent.toFixed(4)) + '%';
       };
-      this.worker.onerror = () => { result.textContent = 'The simulation could not run.'; this.stopWorker(); };
-      this.worker.postMessage({ settings, count: $(this.el, 'sim-count').valueAsNumber });
+      const breakdown = report => 'Combination frequency (% of all spins)\n' + odds.wins.map(({ id, probability, payout }, index) => {
+        const exact = `${WIN_LABELS[id]}${payout === 0 ? ' (no pay)' : ''} · ${combinationPct(probability)} exact`;
+        return report ? exact + ` · ${combinationPct(report.combinations[index].frequency)} simulated` : exact;
+      }).join('\n');
+      result.textContent = expected + '\n\n' + breakdown() + '\n\nRunning simulation…';
+      this.setRtpRunning(true);
+      const report = await simulate(odds, spins, { signal: run.signal });
+      if (!report || this.simulation !== run) return;
+      result.textContent = `${spins.toLocaleString('en-US')} spins
+${expected}
+Simulated RTP ${pct(report.rtp)}
+Simulated win frequency ${pct(report.hitRate)}
+
+${breakdown(report)}`;
     } catch (error) {
-      result.textContent = error.message;
-      this.stopWorker();
+      if (this.simulation === run) result.textContent = error.message;
+    } finally {
+      if (this.simulation === run) {
+        this.simulation = null;
+        this.setRtpRunning(false);
+      }
     }
   }
 }

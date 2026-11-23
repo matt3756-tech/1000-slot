@@ -1,4 +1,5 @@
 import { BLANK } from './math.js';
+import { LAND_CUES } from './audio.js';
 import { cell, centerIds, coinPicker } from './outcomes.js';
 
 // ZEUS1 updates motion at high ticker priority before Pixi renders.
@@ -58,7 +59,7 @@ export function planSpin(ids, settings) {
     times[1] += extra;
     times[2] = times[1] + stagger;
     slow[1] = true;
-    phases.push({ start: times[0], end: times[1], reels: [1, 2] });
+    phases.push({ start: times[0], end: times[1], reels: [1] });
     if (ids[1] === 'coin1000') {
       times[2] += Math.max(ant.rightExtraDuration, ant.stopDuration);
       slow[2] = true;
@@ -102,7 +103,11 @@ export async function spinReels(render, old, outcome, settings, audio, peeks = [
   const cfg = settings.spin;
   const spacing = render.geometry.spacing;
   const pick = coinPicker(settings);
-  const plan = planSpin(centerIds(outcome), settings);
+  const ids = centerIds(outcome);
+  const plan = planSpin(ids, settings);
+  const left = ids[0];
+  const landCue = settings.payouts[left] > 0 ? LAND_CUES[left] : null;
+  let matching = Boolean(landCue);
   const motions = outcome.map((column, reel) => {
     const T = plan.times[reel], a = Math.min(cfg.startDuration, T * .3);
     const anticipationStart = plan.phases.find(phase => phase.reels.includes(reel))?.start ?? 0;
@@ -114,13 +119,15 @@ export async function spinReels(render, old, outcome, settings, audio, peeks = [
   });
 
   render.beginSpin(motions);
-  const phaseStarts = [...new Set(plan.phases.map(phase => phase.start))]
-    .filter(start => !plan.phases.some(phase => phase.end === start))
-    .map(start => ({ start, cue: audio.advance('anticipate', start), played: false }));
-  const max = Math.max(...plan.times) + cfg.bounceDuration;
-  motions.forEach(motion => { motion.earlyStop = audio.advance('stop', motion.T); });
+  const firstPhase = plan.phases[0];
+  const firstCue = firstPhase ? audio.advance('anticipate', firstPhase.start) : null;
+  let activePhase;
+  const lastContact = Math.max(...plan.times);
+  const max = lastContact + cfg.bounceDuration;
+  const reelSound = audio.play('reelLoop', { loopForMs: lastContact });
 
   try {
+    motions.forEach(motion => { motion.earlyStop = audio.advance('stop', motion.T); });
     await animate(max, progress => {
       const elapsed = max * progress;
       motions.forEach((motion, reel) => {
@@ -131,24 +138,26 @@ export async function spinReels(render, old, outcome, settings, audio, peeks = [
         if (!motion.contacted) {
           motion.contacted = true;
           if (!motion.earlyStop) audio.play('stop');
+          matching = matching && ids[reel] === left;
+          if (matching) audio.play(landCue, { rate: 2 ** (reel * 3 / 12) });
           render.startLanding(reel, outcome[reel][1]);
         }
         const settle = Math.min(1, (elapsed - motion.T) / Math.max(1, cfg.bounceDuration));
         const bounce = Math.sin(settle * Math.PI * cfg.bounceCycles) * cfg.bounce * (1 - settle);
         render.landReel(reel, outcome[reel], motion.adjacent, bounce);
       });
-      for (const phase of phaseStarts) {
-        if (!phase.played && elapsed >= phase.start) {
-          phase.played = true;
-          if (!phase.cue) audio.play('anticipate');
-        }
-      }
       const active = plan.phases.find(phase => elapsed >= phase.start && elapsed < phase.end);
-      if (!active && render.chase.active.length) audio.stopAnticipation();
-      render.setAnticipation(active?.reels ?? []);
+      if (active !== activePhase) {
+        if (active !== firstPhase) firstCue?.cancel();
+        if (activePhase || active !== firstPhase) audio.stopAnticipation();
+        if (active && (active !== firstPhase || !firstCue)) audio.play('anticipate');
+        render.setAnticipation(active?.reels ?? []);
+        activePhase = active;
+      }
     }, render.app.ticker);
   } finally {
-    phaseStarts.forEach(phase => phase.cue?.cancel());
+    reelSound?.cancel();
+    firstCue?.cancel();
     audio.stopAnticipation();
     render.setAnticipation([]);
   }

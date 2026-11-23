@@ -87,7 +87,7 @@ export class Renderer {
     const next = mobileProfile(this.settings);
     const profile = renderProfile(this.settings, next);
     this.mobile = next;
-    this.app.ticker.maxFPS = profile.maxFPS;
+    this.app.ticker.maxFPS = 0;
     if (this.app.renderer.resolution !== profile.resolution) {
       this.app.renderer.resolution = profile.resolution;
       this.app.renderer.resize(SIZE, SIZE);

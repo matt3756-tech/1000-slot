@@ -11,7 +11,7 @@ export class AnticipationChase{
   this.render=render;this.root=new PIXI.Container();this.root.eventMode='none';render.slot.addChild(this.root);
   this.reels=Array.from({length:3},()=>{const c=new PIXI.Container(),halo=new PIXI.Graphics(),trail=new PIXI.Graphics();c.addChild(halo,trail);halo.filters=[new PIXI.BlurFilter(6,2)];halo.blendMode=trail.blendMode=PIXI.BLEND_MODES.ADD;this.root.addChild(c);return{c,halo,trail};});this.active=[];this.started=performance.now();
  }
- set(reels){if(!this.active.length&&reels.length)this.started=performance.now();this.active=reels;this.root.visible=reels.length>0&&this.render.settings.anticipationChase.enabled;}
+ set(reels){if(reels.length&&this.active[0]!==reels[0])this.started=performance.now();this.active=reels;this.root.visible=reels.length>0&&this.render.settings.anticipationChase.enabled;}
  update(){
   const cfg=this.render.settings.anticipationChase;this.root.visible=cfg.enabled&&this.active.length>0;if(!this.root.visible)return;
   const phase=(performance.now()-this.started)/Math.max(1,cfg.duration),heads=Math.max(1,Math.round(cfg.heads));

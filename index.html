@@ -10,14 +10,24 @@
   <title>Coin 10s</title>
   <style>
     html,body {margin:0;background:#20232b;color:#fff}
-    #boot {position:fixed;inset:0;display:grid;place-items:center;background:#11151e}
+    #boot {position:fixed;inset:0;display:grid;place-items:center;background:#10141c}
+    #boot-art {opacity:0}
     [hidden] {display:none!important}
   </style>
 </head>
 <!-- Set data-editor to visible, hidden (E shortcut), or off. -->
-<body data-editor="visible" data-editor-side="right">
+<body data-editor="off" data-editor-side="right">
   <div id="game-area" inert>
     <div id="stage" tabindex="0" aria-label="Coin 10s game. Press Space or Enter to spin."></div>
+    <div id="featured-win" role="dialog" aria-modal="true" aria-labelledby="featured-win-title" hidden>
+      <button type="button" class="featured-win-action" aria-label="Finish win count">
+        <span class="featured-win-graphic">
+          <span id="featured-win-title"></span>
+          <span id="featured-win-amount" aria-hidden="true"></span>
+        </span>
+      </button>
+      <span id="featured-win-total" class="screen-reader" aria-live="polite"></span>
+    </div>
     <p class="screen-reader" id="balance-summary" aria-live="polite"></p>
   </div>
   <div id="popup-layer" hidden>
@@ -31,8 +41,7 @@
   </div>
   <div id="boot">
     <div id="boot-scene">
-      <h1 id="boot-title"></h1>
-      <div id="boot-coins" aria-hidden="true"></div>
+      <img id="boot-art" alt="10, 100 or 1000" fetchpriority="high">
       <p id="boot-status" role="status">Loading…</p>
       <button id="start" hidden>Click anywhere to play</button>
     </div>
@@ -46,7 +55,7 @@
     (async () => {
       const files = ['animation','anticipation-chase','assets','audio','controls','debt','editor-access',
         'editor-grid','editor','effects','main','math','mobile','outcomes','rendering','settings',
-        'simulation','startup','storage','ui','win-text'];
+        'simulation','startup','storage','ui','win-celebration','win-text'];
       const bust = '?v=' + Date.now();
       const imports = Object.fromEntries(files.map(name => {
         const uri = new URL('js/' + name + '.js', document.baseURI).href;

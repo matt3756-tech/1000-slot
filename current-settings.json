@@ -3,7 +3,7 @@
   "slot": {
     "x": 512,
     "y": 512,
-    "scale": 0.96,
+    "scale": 1,
     "rotation": 0,
     "alpha": 1
   },
@@ -16,11 +16,12 @@
     "w": 254,
     "h": 487,
     "columnStep": 287,
-    "spacing": 163,
-    "clipRadius": 15
+    "spacing": 140,
+    "clipRadius": 15,
+    "blankPercent": 47.1
   },
   "spin": {
-    "speed": 17,
+    "speed": 22,
     "duration": 870,
     "stagger": 600,
     "startDuration": 0,
@@ -31,7 +32,7 @@
   },
   "anticipation": {
     "enabled": true,
-    "extraDuration": 1315,
+    "extraDuration": 1570,
     "rightExtraDuration": 1225,
     "stopDuration": 1225
   },
@@ -39,7 +40,7 @@
     "enabled": true,
     "padding": 6,
     "radius": 17,
-    "width": 4,
+    "width": 10,
     "glowWidth": 28,
     "alpha": 1,
     "baseAlpha": 0.23,
@@ -77,9 +78,18 @@
     "sparkleColor": "#e6faff",
     "sparkleAlpha": 0.98
   },
+  "winShake": {
+    "syncToBell": true,
+    "duration": 2600,
+    "horizontal": 3,
+    "vertical": 3,
+    "rotation": 0.7,
+    "frequency": 8.3,
+    "decay": 0.6
+  },
   "symbols": {
     "coin10": {
-      "weight": 78,
+      "weight": 69.15,
       "size": 205,
       "widthScale": 1,
       "heightScale": 1,
@@ -90,7 +100,7 @@
       "tint": "#ffffff"
     },
     "coin100": {
-      "weight": 18,
+      "weight": 35.2,
       "size": 205,
       "widthScale": 1,
       "heightScale": 1,
@@ -101,7 +111,7 @@
       "tint": "#ffffff"
     },
     "coin1000": {
-      "weight": 4,
+      "weight": 8,
       "size": 205,
       "widthScale": 1,
       "heightScale": 1,
@@ -111,6 +121,12 @@
       "alpha": 1,
       "tint": "#ffffff"
     }
+  },
+  "payouts": {
+    "coin10": 10,
+    "coin100": 100,
+    "coin1000": 1000,
+    "mixed": 1
   },
   "buttons": {
     "menu": {
@@ -288,16 +304,16 @@
   },
   "popups": {
     "line": {
-      "x": 512,
-      "y": 213,
+      "x": 511,
+      "y": 489,
       "w": 780,
-      "scale": 0.95,
-      "fontSize": 132,
+      "scale": 1,
+      "fontSize": 163,
       "color": "#fff3c7",
       "alpha": 1,
       "inDuration": 145,
-      "countDuration": 560,
-      "holdDuration": 460,
+      "countDuration": 675,
+      "holdDuration": 750,
       "outDuration": 175,
       "previewValue": 10000,
       "enabled": true
@@ -316,8 +332,8 @@
       "border": "#6fa4b7",
       "borderWidth": 2,
       "radius": 29,
-      "dim": 0.62,
-      "textureAlpha": 0.17,
+      "dim": 0.75,
+      "textureAlpha": 0.35,
       "inDuration": 200,
       "outDuration": 150
     },
@@ -401,46 +417,39 @@
   "textEffects": {
     "line": {
       "strokeEnabled": true,
-      "strokeWidth": 3,
+      "strokeWidth": 4,
       "strokeColor": "#10131e",
       "gradientEnabled": true,
-      "topColor": "#fffbea",
-      "bottomColor": "#ffc05d",
-      "letterSpacing": 2,
+      "topColor": "#80ff00",
+      "bottomColor": "#00d700",
+      "letterSpacing": 2.5,
       "shadowEnabled": true,
       "shadowColor": "#000000",
       "shadowAlpha": 0.7,
-      "shadowBlur": 9,
-      "shadowDistance": 9,
+      "shadowBlur": 1,
+      "shadowDistance": 11.2,
       "shadowAngle": 73,
       "extrusionEnabled": true,
       "depth": 7,
       "depthAngle": 75,
-      "depthNearColor": "#995c25",
-      "depthFarColor": "#31213a",
+      "depthNearColor": "#575757",
+      "depthFarColor": "#121212",
       "bevelEnabled": false,
       "bevelSize": 1.5,
       "bevelColor": "#fff8d5",
       "bevelAlpha": 0.8,
       "glowEnabled": true,
-      "glowColor": "#ffd375",
-      "glowAlpha": 0.42,
-      "glowBlur": 15
+      "glowColor": "#ffffff",
+      "glowAlpha": 0.2,
+      "glowBlur": 4.5
     }
   },
   "startup": {
-    "x": 512,
-    "y": 428,
-    "w": 510,
-    "h": 155,
-    "scale": 1,
     "imageAlpha": 1,
-    "title": "COIN 10s",
-    "titleSize": 104,
     "fontSize": 35,
-    "color": "#f4f8ff",
     "loadingY": 681,
     "promptY": 741,
+    "entranceDuration": 480,
     "fadeDuration": 400
   },
   "paysLayout": {
@@ -449,25 +458,31 @@
     "cardPadding": 8
   },
   "volumeMenu": {
-    "rowGap": 32
+    "rowGap": 36
   },
   "leaderboard": {
     "maxRows": 5
   },
   "cashoutRules": {
-    "noDebtMinimum": 10000,
-    "borrowedMinimum": 5000,
+    "noDebtMinimum": 1001,
+    "borrowedMinimum": 1000,
     "resetDays": 30
   },
   "audio": {
     "enabled": true,
     "musicEnabled": true,
-    "sfxVolume": 0.78,
+    "sfxVolume": 0.8,
     "musicVolume": 0.28,
-    "clickVolume": 1,
+    "clickVolume": 0.7,
     "clickTimingMs": 0,
     "clickOffsetMs": 0,
-    "stopVolume": 1,
+    "spinStartVolume": 0.8,
+    "spinStartTimingMs": 0,
+    "spinStartOffsetMs": 0,
+    "reelLoopVolume": 0.2,
+    "reelLoopTimingMs": 0,
+    "reelLoopOffsetMs": 0,
+    "stopVolume": 1.2,
     "stopTimingMs": 0,
     "stopOffsetMs": 0,
     "anticipateVolume": 1,
@@ -476,11 +491,29 @@
     "winVolume": 1,
     "winTimingMs": 0,
     "winOffsetMs": 0,
+    "mixedLineWinVolume": 0.82,
+    "mixedLineWinTimingMs": 0,
+    "mixedLineWinOffsetMs": 0,
+    "winMixedVolume": 0.8,
+    "winMixedOffsetMs": 0,
+    "win10Volume": 0.82,
+    "win10OffsetMs": 0,
+    "win100Volume": 0.88,
+    "win100OffsetMs": 0,
+    "win1000Volume": 0.94,
+    "win1000OffsetMs": 0,
+    "land10Volume": 0.84,
+    "land10OffsetMs": 0,
+    "land100Volume": 0.86,
+    "land100OffsetMs": 0,
+    "land1000Volume": 0.88,
+    "land1000OffsetMs": 0,
+    "bonusWonVolume": 1,
+    "bigWinMusicVolume": 1,
+    "jackpotMusicVolume": 1,
     "fadeDuration": 350
   },
   "performance": {
-    "nativeRefresh": true,
-    "maxFPS": 60,
     "mobileEnabled": true,
     "mobileBreakpoint": 1100,
     "mobileResolution": 0.85,
@@ -490,8 +523,8 @@
     "mobileMenuWidth": 0.92
   },
   "textRendering": {
-    "resolution": 2,
-    "roundPixels": false
+    "resolution": 2.5,
+    "roundPixels": true
   },
   "editorGrid": {
     "snapEnabled": false,

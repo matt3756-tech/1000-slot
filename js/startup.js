@@ -1,34 +1,38 @@
-import { FONT, SIZE } from './settings.js';
+import { mediaSource } from './assets.js';
+import { SIZE } from './settings.js';
 
-// ZEUS1's load-then-gesture startup, fitted to the square cabinet.
 export class Startup {
   constructor(settings) {
     this.s = settings;
     this.el = document.querySelector('#boot');
     this.scene = document.querySelector('#boot-scene');
-    this.title = document.querySelector('#boot-title');
-    this.image = document.querySelector('#boot-coins');
+    this.image = document.querySelector('#boot-art');
     this.status = document.querySelector('#boot-status');
     this.prompt = document.querySelector('#start');
-    this.resize = () => this.apply();
-    window.addEventListener('resize', this.resize);
+    window.addEventListener('resize', () => this.apply());
+  }
+
+  async load() {
+    this.apply();
+    this.image.src = mediaSource('assets/title-screen.jpeg');
+    await this.image.decode();
+    this.apply();
+    this.image.classList.add('boot-art-ready');
   }
 
   apply() {
     const cfg = this.s.startup, area = this.el.getBoundingClientRect();
-    const fit = Math.min(area.width / SIZE, area.height / SIZE);
-    this.scene.style.transform = `translate(-50%, -50%) scale(${fit})`;
-    this.title.textContent = cfg.title;
-    Object.assign(this.title.style, { left: cfg.x + 'px', top: cfg.y + 'px', color: cfg.color, fontSize: cfg.titleSize + 'px' });
-    Object.assign(this.image.style, { left: cfg.x + 'px', top: cfg.y + cfg.h * .87 + 'px',
-      width: cfg.w * cfg.scale + 'px', height: cfg.h * cfg.scale + 'px', opacity: cfg.imageAlpha });
-    for (const node of [this.status, this.prompt]) {
-      node.style.fontFamily = FONT;
-      node.style.fontSize = cfg.fontSize + 'px';
-    }
-    this.status.style.top = cfg.loadingY + 'px';
-    this.prompt.style.top = cfg.promptY + 'px';
-    this.el.style.transitionDuration = cfg.fadeDuration + 'ms';
+    if (!area.width || !area.height) return;
+    const ratio = this.image.naturalWidth / this.image.naturalHeight || 16 / 9;
+    const width = Math.min(area.width, area.height * ratio);
+    this.scene.style.width = width + 'px';
+    this.scene.style.height = width / ratio + 'px';
+    this.scene.style.fontSize = Math.max(14, Math.min(32, cfg.fontSize * width / SIZE)) + 'px';
+    this.status.style.top = cfg.loadingY / SIZE * 100 + '%';
+    this.prompt.style.top = cfg.promptY / SIZE * 100 + '%';
+    this.el.style.setProperty('--boot-art-opacity', cfg.imageAlpha);
+    this.el.style.setProperty('--boot-entrance', cfg.entranceDuration + 'ms');
+    this.el.style.setProperty('--boot-exit', cfg.fadeDuration + 'ms');
   }
 
   progress(message) { this.status.textContent = message; }
@@ -39,10 +43,12 @@ export class Startup {
     this.el.addEventListener('click', action, { once: true });
   }
 
-  close() {
+  async close() {
     this.el.classList.add('boot-fade');
     this.el.inert = true;
-    setTimeout(() => { if (this.el.classList.contains('boot-fade')) this.el.hidden = true; }, this.s.startup.fadeDuration);
+    const duration = this.s.startup.fadeDuration;
+    if (duration > 0) await new Promise(resolve => setTimeout(resolve, duration));
+    if (this.el.classList.contains('boot-fade')) this.el.hidden = true;
   }
 
   preview() {

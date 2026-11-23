@@ -1,10 +1,11 @@
 import { mobileMenuConfig } from './mobile.js';
 import { cashoutEligibility, debtResetAt } from './debt.js';
 import { listScores } from './storage.js';
-import { COINS, PAY_MULTIPLIERS } from './math.js';
+import { COINS, WIN_LABELS, payoutCredits } from './math.js';
 import { FONT, SIZE } from './settings.js';
 import { animate, easeOut, popupIn, popupOut } from './animation.js';
 import { makeWinText } from './win-text.js';
+import { playWinCelebration } from './win-celebration.js';
 
 export const money = value => Math.round(value).toLocaleString('en-US');
 const safe = value => String(value).replace(/[&<>"']/g, char => ({
@@ -36,14 +37,25 @@ export class UI {
     this.body = this.content.querySelector('.dialog-body');
     this.heading = this.content.querySelector('h2');
     this.close = this.content.querySelector('.close-dialog');
+    new ResizeObserver(() => this.fitMenu()).observe(this.content);
+    this.content.addEventListener('click', event => {
+      if (!this.modal || this.modal.preview) return;
+      const control = event.target.closest('button, select');
+      if (control && !control.disabled) this.audio.play('click');
+    }, { capture: true });
     this.close.addEventListener('click', () => this.hideModal());
     this.overlay.addEventListener('pointerdown', event => {
-      if (event.target === this.overlay) this.hideModal();
+      if (event.target === this.overlay) this.dismiss();
     });
     document.addEventListener('pointerdown', event => {
       if (!this.modal || event.target.closest('#popup-overlay,#editor,#editor-toggle')) return;
-      this.hideModal();
+      this.dismiss();
     });
+  }
+
+  dismiss() {
+    if (this.modal && !this.modal.preview) this.audio.play('click');
+    this.hideModal();
   }
 
   thumbnail(id) {
@@ -58,7 +70,7 @@ export class UI {
 
   async showLine(amount, preview = false, refresh = false) {
     this.clearLine();
-    const cfg = { ...this.s.popups.line, fontFamily: 'Coin Pixel', fontWeight: 'normal' };
+    const cfg = { ...this.s.popups.line, fontFamily: FONT, fontWeight: 'normal' };
     if (!cfg.enabled && !preview) return;
     const epoch = this.lineEpoch;
     const node = new PIXI.Container();
@@ -85,8 +97,22 @@ export class UI {
     if (epoch === this.lineEpoch) this.clearLine();
   }
 
+  showFeaturedWin(id, amount) {
+    return playWinCelebration(this.render, this.audio, document.querySelector('#featured-win'), id, amount, money);
+  }
+
   menuConfig(kind) {
     return mobileMenuConfig(this.s.popups[kind], this.s, this.render.mobile && !this.render.editMode);
+  }
+
+  fitMenu() {
+    if (!this.modal) return;
+    const cfg = this.menuConfig(this.modal.kind);
+    const { offsetHeight, offsetWidth } = this.content;
+    if (!offsetHeight || !offsetWidth) return;
+    const maxSize = SIZE - 24;
+    const scale = Math.min(cfg.scale, cfg.h / offsetHeight, maxSize / offsetHeight, maxSize / offsetWidth);
+    this.content.style.setProperty('--panel-scale', scale);
   }
 
   positionContent() {
@@ -98,16 +124,17 @@ export class UI {
     if (!this.modal) return;
     const cfg = this.menuConfig(this.modal.kind);
     Object.assign(this.content.style, {
-      left: cfg.x + 'px', top: cfg.y + 'px', width: cfg.w + 'px', height: cfg.h + 'px'
+      left: cfg.x + 'px', top: cfg.y + 'px', width: cfg.w + 'px'
     });
     for (const [key, value] of Object.entries({
-      '--panel-scale': cfg.scale, '--heading-size': cfg.fontSize + 'px',
+      '--heading-size': cfg.fontSize + 'px',
       '--body-size': cfg.subSize + 'px', '--panel-ink': cfg.color, '--panel-fill': cfg.fill,
       '--panel-opacity': cfg.fillAlpha * 100 + '%', '--panel-border': cfg.border,
       '--panel-line': cfg.borderWidth + 'px', '--panel-radius': cfg.radius + 'px',
       '--grain': cfg.textureAlpha
     })) this.content.style.setProperty(key, value);
     this.layer.style.setProperty('--modal-dim', cfg.dim);
+    this.fitMenu();
   }
 
   createPopup(kind, title, preview = false) {
@@ -162,7 +189,7 @@ export class UI {
     for (const [label, open] of entries) {
       const button = document.createElement('button');
       button.textContent = label;
-      button.addEventListener('click', () => { if (!preview) { this.audio.play('click'); open(); } });
+      button.addEventListener('click', () => { if (!preview) open(); });
       this.body.firstElementChild.append(button);
     }
   }
@@ -170,9 +197,9 @@ export class UI {
   pays(preview = false) {
     const thumb = id => `<img src="${this.thumbnail(id)}" alt="${id.slice(4)}">`;
     const row = (label, thumbnails, multiplier) =>
-      `<li><span class="pay-coins">${thumbnails}</span><span>${label}</span><b>${money(this.player.bet * multiplier)}</b></li>`;
-    const rows = COINS.map(id => row('3 × ' + id.slice(4), thumb(id).repeat(3), PAY_MULTIPLIERS[id]));
-    rows.push(row('Any mix', COINS.map(thumb).join(''), PAY_MULTIPLIERS.mixed));
+      `<li><span class="pay-coins">${thumbnails}</span><span>${label}</span><b>${money(payoutCredits(this.player.bet, multiplier))}</b></li>`;
+    const rows = COINS.map(id => row(WIN_LABELS[id], thumb(id).repeat(3), this.s.payouts[id]));
+    rows.push(row(WIN_LABELS.mixed, COINS.map(thumb).join(''), this.s.payouts.mixed));
     this.menu('PAYS', `<p class="note">Credits at a ${money(this.player.bet)}-credit bet</p>
       <ul class="pays-list">${rows.join('')}</ul><p class="note">All three center stops must contain coins.</p>`, 'pays', preview);
     this.applyPays();

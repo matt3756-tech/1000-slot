@@ -1,4 +1,6 @@
 // The shape of these defaults also defines the editor's fields and import schema.
+import { PAY_MULTIPLIERS } from './math.js';
+
 export const FONT = 'Matcha Squishy';
 export const SIZE = 1024;
 export const BETS = Array.from({ length: 10 }, (_, index) => (index + 1) * 10);
@@ -23,12 +25,13 @@ const symbol = weight => ({
   weight, size: 151, widthScale: 1, heightScale: 1, offsetX: 0, offsetY: 0,
   rotation: 0, alpha: 1, tint: '#ffffff'
 });
-const cue = kind => ({ [kind + 'Volume']: 1, [kind + 'TimingMs']: 0, [kind + 'OffsetMs']: 0 });
+const cue = (kind, volume = 1) => ({ [kind + 'Volume']: volume, [kind + 'TimingMs']: 0, [kind + 'OffsetMs']: 0 });
+const popCue = (kind, volume) => ({ [kind + 'Volume']: volume, [kind + 'OffsetMs']: 0 });
 export const defaults = {
   version: 1,
   slot: { x: 512, y: 512, scale: .96, rotation: 0, alpha: 1 },
   background: { brightness: 1 },
-  reels: { x: 98, y: 263, w: 254, h: 494, columnStep: 287, spacing: 163, clipRadius: 15 },
+  reels: { x: 98, y: 263, w: 254, h: 494, columnStep: 287, spacing: 163, clipRadius: 15, blankPercent: 50 },
   spin: { speed: 17, duration: 800, stagger: 235, startDuration: 95, stopDuration: 170,
     bounce: 5, bounceDuration: 135, bounceCycles: 1 },
   anticipation: { enabled: true, extraDuration: 1050, rightExtraDuration: 500, stopDuration: 860 },
@@ -40,7 +43,10 @@ export const defaults = {
   winning: { enabled: true, duration: 520, brightness: .52, haloAlpha: .74, haloBlur: 15,
     haloTint: '#83ddff', pop: .18, sparkles: true, sparkleCount: 10, sparkleSize: 24,
     sparkleColor: '#e6faff', sparkleAlpha: .98 },
+  winShake: { syncToBell: true, duration: 2600, horizontal: 18, vertical: 8, rotation: 1.2,
+    frequency: 9, decay: .65 },
   symbols: { coin10: symbol(78), coin100: symbol(18), coin1000: symbol(4) },
+  payouts: { ...PAY_MULTIPLIERS },
   buttons: {
     menu: button(-390, 431, 167, 78, 'MENU', 36),
     spin: button(0, 384, 214, 214, 'SPIN', 63, true),
@@ -70,15 +76,20 @@ export const defaults = {
     bevelEnabled: false, bevelSize: 1.5, bevelColor: '#fff8d5', bevelAlpha: .8,
     glowEnabled: true, glowColor: '#ffd375', glowAlpha: .42, glowBlur: 15
   } },
-  startup: { x: 512, y: 428, w: 510, h: 155, scale: 1, imageAlpha: 1, title: 'COIN 10s',
-    titleSize: 104, fontSize: 35, color: '#f4f8ff', loadingY: 681, promptY: 741, fadeDuration: 400 },
+  startup: { imageAlpha: 1, fontSize: 35, loadingY: 681, promptY: 741,
+    entranceDuration: 480, fadeDuration: 400 },
   paysLayout: { thumbnailHeight: 63, gap: 12, cardPadding: 8 },
   volumeMenu: { rowGap: 32 },
   leaderboard: { maxRows: 5 },
   cashoutRules: { noDebtMinimum: 10000, borrowedMinimum: 5000, resetDays: 30 },
   audio: { enabled: true, musicEnabled: true, sfxVolume: .78, musicVolume: .28,
-    ...cue('click'), ...cue('stop'), ...cue('anticipate'), ...cue('win'), fadeDuration: 350 },
-  performance: { nativeRefresh: true, maxFPS: 60, mobileEnabled: true, mobileBreakpoint: 1100,
+    ...cue('click'), ...cue('spinStart'), ...cue('reelLoop', .55),
+    ...cue('stop'), ...cue('anticipate'), ...cue('win'), ...cue('mixedLineWin', .82),
+    ...popCue('winMixed', .80), ...popCue('win10', .82), ...popCue('win100', .88),
+    ...popCue('win1000', .94), ...popCue('land10', .84), ...popCue('land100', .86),
+    ...popCue('land1000', .88), bonusWonVolume: 1,
+    bigWinMusicVolume: .46, jackpotMusicVolume: .46, fadeDuration: 350 },
+  performance: { mobileEnabled: true, mobileBreakpoint: 1100,
     mobileResolution: .85, mobileTextResolution: 2, maxVoices: 24, mobileMenuScale: 1.12, mobileMenuWidth: .92 },
   textRendering: { resolution: 2, roundPixels: false },
   editorGrid: { snapEnabled: false, showGrid: false, size: 24, offsetX: 0, offsetY: 0,
@@ -101,11 +112,19 @@ export function updateLayoutField(settings, path, value) {
 }
 export const popupKinds = ['line', 'menu', 'pays', 'leaderboard', 'cashout', 'volume', 'startup'];
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+export const normalizePayout = value => Math.round(clamp(value, 0, 10000) * 10) / 10;
 
 export function limits(path, value) {
   const key = path.split('.').at(-1);
   const range = (min, max, step = 1) => ({ min, max, step });
+  if (path.startsWith('payouts.')) return range(0, 10000, .1);
+  if (path.startsWith('winShake.')) {
+    const ranges = { duration: range(0, 15000, 10), horizontal: range(0, 80), vertical: range(0, 80),
+      rotation: range(0, 8, .1), frequency: range(1, 25, .1), decay: range(0, 3, .05) };
+    return ranges[key];
+  }
   if (path.startsWith('cashoutRules.')) return key === 'resetDays' ? range(1, 365) : range(1000, 100000, 1000);
+  if (key === 'blankPercent') return range(0, 100, .1);
   if (key.endsWith('TimingMs')) return range(-1200, 1200, 5);
   if (key.endsWith('OffsetMs')) return range(0, 2500, 5);
   if (key.endsWith('Duration') || key === 'duration') return range(0, 6000, 5);
@@ -136,7 +155,6 @@ export function limits(path, value) {
   if (key === 'mobileBreakpoint') return range(320, 1600, 10);
   if (key === 'mobileMenuScale') return range(.85, 1.5, .01);
   if (key === 'maxVoices') return range(6, 48);
-  if (key === 'maxFPS') return range(15, 240);
   if (key.toLowerCase().endsWith('resolution')) return range(.5, 3, .05);
   return range(0, Math.max(100, value * 2), .1);
 }
@@ -145,6 +163,7 @@ export function mergeSettings(raw, base = defaults) {
     const input = source?.[key], path = prefix + key;
     if (value && typeof value === 'object') return [key, merge(value, input, path + '.')];
     if (typeof value === 'number') {
+      if (prefix === 'payouts.') return [key, Number.isFinite(input) ? normalizePayout(input) : value];
       const { min, max, step } = limits(path, value);
       const safe = Number.isFinite(input) ? clamp(input, min, max) : value;
       return [key, step === 1 ? Math.round(safe) : safe];
